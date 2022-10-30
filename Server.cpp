@@ -16,6 +16,7 @@ namespace {
 
 int SetNonBlock(int fd) {
   int flags;
+  // 设置描述符位非阻塞模式
 #if defined(O_NONBLOCK)
   if (-1 == (flags = fcntl(fd, F_GETFL, 0))) {
     flags = 0;
@@ -39,6 +40,7 @@ int StartListening(int port) {
   int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (fd == -1) {
     std::cerr << "cannot open socket!" << std::endl;
+    return -1;
   }
 
   // sockaddr_in：套接字地址结构体
@@ -56,13 +58,57 @@ int StartListening(int port) {
   // int ret = bind(fd, (sockaddr*)&sock_addr, sizeof(sock_addr));
   if (ret == -1) {
     std::cerr << "failed to bind socket!" << std::endl;
+    return -1;
   }
 
-  set_nonblock()
+  ret = SetNonBlock(fd);
+  if (ret == -1) {
+    std::cerr << "failed to set non-blocking mode" << std::endl;
+    return -1;
+  }
+
+  // 将主动连接套接字设置为被动连接套接字
+  // int listen(int __fd, int __n)
+  // __n：请求连接队列，队列中的请求连接数超过该值返回错误
+  ret = listen(fd, SOMAXCONN);
+  if (ret == -1) {
+    std::cerr << "failed to listen fd" << std::endl;
+  }
+
+  return fd;
+}
+
+int MaxSocket(int server_socket, const std::set<int>& client_sockets) {
+  if (client_sockets.empty()) {
+    return server_socket;
+  } else {
+    return std::max(server_socket, *client_sockets.rbegin());
+  }
 }
 
 int main () {
   int socket_server = StartListening(kPort);
+  if (socket_server == -1) {
+    std::cerr << "invalid socket!" << std::endl;
+    return 1;
+  }
+
+  std::set<int> client_sockets;
+  fd_set fds;
+
+  while (true) {
+    // 将指定的文件描述符集清空，在对文件描述符集合进行设置前，必须对其进行初始化，
+    // 如果不清空，由于在系统分配内存空间后，通常并不作清空处理，所以结果是不可知的。
+    FD_ZERO(&fds);
+    // 将fd加入fd_set
+    FD_SET(socket_server, &fds);
+
+    for (auto sock : client_sockets) {
+      FD_SET(sock, &fds);
+    }
+
+    int max = MaxSocket(socket_server, client_sockets);
+  }
 
   return 0;
 }
